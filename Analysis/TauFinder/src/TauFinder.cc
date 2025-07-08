@@ -25,13 +25,9 @@ using namespace std;
 
 #include "HelixClass.h"
 #include "SimpleLine.h"
-// ----- include for verbosity dependend logging ---------
+
+// ----- Include for verbosity dependent logging ---------
 #include "marlin/VerbosityLevels.h"
-
-#define coutEv -1
-
-#define coutUpToEv 0
-
 
 using namespace lcio ;
 using namespace marlin ;
@@ -39,30 +35,532 @@ using namespace UTIL;
 
 TauFinder aTauFinder ;
 
+TauFinder::TauFinder() : Processor("TauFinder") 
+{
+  _description = "TauFinder writes tau candidates as ReconstructedParticles into collection. It runs on a collection of ReconstructedParticels, if you want  to run on MCParticles you have to convert them before hand (use e.g. PrepareRECParticles processor)" ;
+  
+  // Register steering parameters: name, description, class-variable, default value
+  registerInputCollection( LCIO::RECONSTRUCTEDPARTICLE,
+			    "PFOCollection",
+                            "Collection of PFOs",
+                            _inCol ,
+                            std::string("PandoraPFOs"));
 
-bool MyEnergySort( ReconstructedParticle *p1, ReconstructedParticle *p2)
+  registerOutputCollection( LCIO::RECONSTRUCTEDPARTICLE,
+			    "RecoTauCollection",
+                            "Collection of Tau Candidates",
+                            _outCol ,
+                            std::string("RecoTaus"));
+  
+  registerOutputCollection( LCIO::RECONSTRUCTEDPARTICLE,
+			    "RecoTauChargedTrackCollection",
+                            "Collection of Tau Candidates which Failed Number of Charged Tracks Selection",
+                            _outColNChargedTrks ,
+                            std::string("RecoTaus_NChargedTrks"));
+
+  registerOutputCollection( LCIO::RECONSTRUCTEDPARTICLE,
+			    "RecoTauInvMassCollection",
+                            "Collection of Tau Candidates which Failed Invariant Mass Selection",
+                            _outColInvMass ,
+                            std::string("RecoTaus_InvMass"));
+
+  registerOutputCollection( LCIO::RECONSTRUCTEDPARTICLE,
+			    "RecoTauMergeCollection",
+                            "Collection of Tau Candidates which Failed Merge",
+                            _outColMerge ,
+                            std::string("RecoTaus_Merge"));
+
+  registerOutputCollection( LCIO::RECONSTRUCTEDPARTICLE,
+			    "RecoTauNParticlesCollection",
+                            "Collection of Tau Candidates which Failed Number of Particles Selection",
+                            _outColNParticles ,
+                            std::string("RecoTaus_NParticles"));
+
+  registerOutputCollection( LCIO::RECONSTRUCTEDPARTICLE,
+			    "RecoTauIsoEnergyCollection",
+                            "Collection of Tau Candidates which Failed Isolation Energy Selection",
+                            _outColIsoEnergy ,
+                            std::string("RecoTaus_IsoEnergy"));
+  
+  registerOutputCollection( LCIO::LCRELATION,
+			    "TauPFOLinkCollectionName" , 
+			    "Name of the Tau Link to PandoraPFO Collection"  ,
+			    _tauPFOLinkCol ,
+			    std::string("TauPFOLink") ) ;
+
+  registerProcessorParameter( "fileName" ,
+			      "Name of the output file" ,
+			      _outputFile ,
+			      std::string("taufinder.root") ) ;
+  
+  registerProcessorParameter( "ptCut" ,
+                              "Cut on pt to Suppress Background"  ,
+                              _ptCut ,
+                              (float)0.2) ;
+  
+  registerProcessorParameter( "searchConeAngle" ,
+                              "Opening Angle of the Search Cone for Tau Jet in rad"  ,
+                              _coneAngle ,
+                              (float)0.05) ;
+
+  registerProcessorParameter( "isolationConeAngle" ,
+                              "Outer Isolation Cone Around Search cone of Tau jet in rad (Relative to Cone Angle)"  ,
+                              _isoAngle ,
+                              (float)0.02) ;
+  
+  registerProcessorParameter( "isolationEnergy" ,
+                              "Energy Allowed Within Isolation Cone region"  ,
+                              _isoE ,
+                              (float)5.0) ;
+  
+  registerProcessorParameter( "ptSeed" ,
+                              "Minimum Tranverse Momentum of Tau Seed"  ,
+                              _ptSeed ,
+                              (float)5.0) ;
+
+  registerProcessorParameter( "invMass" ,
+                              "Cut on Invariant Mass of Reconstructed Tau"  ,
+                              _invMass ,
+                              (float)2.0) ;
+}
+
+
+void TauFinder::init() 
+{ 
+  // Usually a good idea to
+  printParameters();
+
+  rootfile = new TFile((_outputFile).c_str (), "RECREATE");
+  anatree = new TTree("anatree", "TTree with TauFinder parameters");
+
+  if (anatree == 0)
+    {
+      throw lcio::Exception("Invalid tree pointer!!!");
+    }
+
+  anatree->Branch(("ntau"), &_ntau, ("ntau/I"));
+  anatree->Branch(TString("t_isoE"), _tau_isoE, "t_isoE[ntau]/F");
+  anatree->Branch(TString("t_invMass"), _tau_invMass, TString("t_invMass[ntau]/F"));
+  anatree->Branch(TString("t_pt"), _tau_pt, TString("t_pt[ntau]/F"));
+  anatree->Branch(TString("t_p"), _tau_p, TString("t_p[ntau]/F"));
+  anatree->Branch(TString("t_energy"), _tau_energy, TString("t_energy[ntau]/F"));
+  anatree->Branch(TString("t_phi"), _tau_phi, TString("t_phi[ntau]/F"));
+  anatree->Branch(TString("t_eta"), _tau_eta, TString("t_eta[ntau]/F"));
+  anatree->Branch(("event_num"), _event_num, ("event_num[ntau]/I"));
+  anatree->Branch(("run_num"), _run_num, ("run_num[ntau]/I"));
+
+  _nRun = 0;
+  _nEvt = 0;
+}
+
+void TauFinder::processRunHeader( LCRunHeader* ) {}
+
+// This gets called for every event 
+// Usually the working horse...
+void TauFinder::processEvent( LCEvent * evt ) 
+{
+
+  _ntau = 0;
+  _nEvt = evt->getEventNumber();
+  _nRun = evt->getRunNumber();
+
+  // Initialize input collection of reconstructed PFOs
+  LCCollection *recoCol;
+  try {
+    recoCol = evt->getCollection( _inCol ) ;
+  }
+  catch (Exception& e) {
+    recoCol = 0;
+  }
+ 
+  // LCRelation keeps track of particles from which the tau was made
+  LCCollectionVec *relationcol = new LCCollectionVec(LCIO::LCRELATION); // Passed
+  relationcol->parameters().setValue(std::string("FromType"),LCIO::RECONSTRUCTEDPARTICLE);
+  relationcol->parameters().setValue(std::string("ToType"),LCIO::RECONSTRUCTEDPARTICLE);
+  
+  // Initialize output collections of reconstructed taus
+  LCCollectionVec * taucol = new LCCollectionVec(LCIO::RECONSTRUCTEDPARTICLE); // Passed
+  LCCollectionVec * taucol_nchargedtrks = new LCCollectionVec(LCIO::RECONSTRUCTEDPARTICLE); // Failed number of charged tracks
+  LCCollectionVec * taucol_invmass = new LCCollectionVec(LCIO::RECONSTRUCTEDPARTICLE); // Failed invariant mass
+  LCCollectionVec * taucol_merge = new LCCollectionVec(LCIO::RECONSTRUCTEDPARTICLE); // Failed merge
+  LCCollectionVec * taucol_nparticles = new LCCollectionVec(LCIO::RECONSTRUCTEDPARTICLE); // Failed number of particles
+  LCCollectionVec * taucol_isoenergy = new LCCollectionVec(LCIO::RECONSTRUCTEDPARTICLE); // Failed isolation energy
+  
+  // Store all, charged, and neutral particles
+  std::vector<ReconstructedParticle*> all_vector; // All particles
+  std::vector<ReconstructedParticle*> charged_vector; // Charged particles
+  std::vector<ReconstructedParticle*> neutral_vector; // Neutral particles
+
+  // Keep reconstructed PFOs which pass pt selection cut
+  if(recoCol != 0)
+    {
+      int nReco = recoCol->getNumberOfElements();
+      for (int i=0; i<nReco; i++) 
+	{
+	  ReconstructedParticle *pfo = static_cast<ReconstructedParticle*>(recoCol->getElementAt(i));
+
+	  double pt = sqrt(pfo->getMomentum()[0]*pfo->getMomentum()[0]
+			 + pfo->getMomentum()[1]*pfo->getMomentum()[1]);
+
+	  if(pt < _ptCut)
+	    {
+	      continue;
+	    }
+	  
+	  all_vector.push_back(pfo);
+	  if(pfo->getCharge() == 1 || pfo->getCharge() == -1)
+	    {
+	      charged_vector.push_back(pfo);
+	    }
+	  else
+	    {
+	      neutral_vector.push_back(pfo);
+	    }
+	}
+    }
+
+  
+  // Sort according to energy (highest to lowest)
+  std::sort(charged_vector.begin(), charged_vector.end(), energySort);
+  std::sort(neutral_vector.begin(), neutral_vector.end(), energySort);
+  
+  // Vector to hold tau candidates
+  std::vector<std::vector<ReconstructedParticle*> > tau_vec;
+
+  // Perform tau reconstruction
+  bool finding_done = false;  
+  while(charged_vector.size() && !finding_done)
+    {
+      finding_done = findTau(charged_vector, neutral_vector, tau_vec);
+    }
+
+  // Vector to store reconstructed taus
+  std::vector<ReconstructedParticleImpl* > reco_tau_vec;
+  
+  // Combine associated particles to tau
+  for (unsigned int p=0; p<tau_vec.size(); p++)
+    {
+      // Reconstructed tau
+      ReconstructedParticleImpl *reco_tau = new ReconstructedParticleImpl();
+      double E = 0;
+      double charge = 0;
+      int pdg = 15;
+      double mom[3] = {0, 0, 0};
+      int n_charged = 0;
+      
+      // Tau candidate
+      std::vector<ReconstructedParticle*> tau = tau_vec[p];
+
+      // Loop through particles associated to tau candidate
+      for (unsigned int tp=0; tp<tau.size(); tp++)
+	{
+	  // Add up energy and momentum
+	  E += tau[tp]->getEnergy();
+	  charge += tau[tp]->getCharge();
+	  mom[0] += tau[tp]->getMomentum()[0];
+	  mom[1] += tau[tp]->getMomentum()[1];
+	  mom[2] += tau[tp]->getMomentum()[2];
+	  
+	  // Add associated particles to reco tau
+	  reco_tau->addParticle(tau[tp]);
+	}
+      
+      if(charge < 0)
+	{
+	  pdg = -15;
+	}
+
+      // Set reco tau parameters
+      reco_tau->setEnergy(E);
+      reco_tau->setCharge(charge);
+      reco_tau->setMomentum(mom);
+      reco_tau->setType(pdg);
+      
+      n_charged = getNCharged(reco_tau);
+
+      double mom_sqrd = mom[0]*mom[0] + mom[1]*mom[1] + mom[2]*mom[2];
+      double inv_mass = 0;
+
+      if (E*E < mom_sqrd)
+	{
+	  inv_mass = E - sqrt(mom_sqrd);
+	}
+      else
+	{
+	  inv_mass = sqrt(E*E - mom_sqrd);
+	}
+      
+      // Create relation between reco tau and associated PFOs
+      for (unsigned int tp=0; tp<tau.size(); tp++)
+	{
+	  LCRelationImpl *rel = new LCRelationImpl(reco_tau, tau[tp]);
+	  relationcol->addElement(rel);
+	}      
+
+      // Check for invariant mass and number of charged particles
+      if (inv_mass > _invMass || n_charged > 4 || n_charged == 0)
+	{
+	  if (inv_mass > _invMass)
+	    {
+	      // Add reco tau to collection which failed invariant mass selection
+	      taucol_invmass->addElement(reco_tau);
+	    }
+	  if (n_charged > 4 || n_charged == 0)
+	    {
+	      // Add reco tau to collection which failed number of charged tracks selection
+	      taucol_nchargedtrks->addElement(reco_tau);
+	    }
+	}
+      else
+	{
+	  // Add reco tau to collection which passed selections thus far
+	  reco_tau_vec.push_back(reco_tau);
+	}
+    }
+  
+  // Merge taus that are very close together
+  LCRelationNavigator *relationNavigator = new LCRelationNavigator(relationcol);
+  
+  if(reco_tau_vec.size() > 1)
+    {
+      std::vector<ReconstructedParticleImpl*>::iterator iterI = reco_tau_vec.begin();
+      std::vector<ReconstructedParticleImpl*>::iterator iterJ = reco_tau_vec.begin();
+
+      double angle = 0;
+      int erasecount = 0;
+
+      
+      for (unsigned int i=0; i<reco_tau_vec.size(); i++)
+	{
+	  ReconstructedParticleImpl *tau_i = static_cast<ReconstructedParticleImpl*>(reco_tau_vec[i]);
+	  const double *mom_i = tau_i->getMomentum();
+	  
+	  for (unsigned int j=i+1; j<reco_tau_vec.size(); j++)
+	    {
+	      iterJ = reco_tau_vec.begin() + j;
+	      ReconstructedParticleImpl *tau_j = static_cast<ReconstructedParticleImpl*>(reco_tau_vec[j]);
+	      const double *mom_j = tau_j->getMomentum();
+
+	      angle = acos((mom_i[0]*mom_j[0]+mom_i[1]*mom_j[1]+mom_i[2]*mom_j[2])/
+			 (sqrt(mom_i[0]*mom_i[0]+mom_i[1]*mom_i[1]+mom_i[2]*mom_i[2])*
+			  sqrt(mom_j[0]*mom_j[0]+mom_j[1]*mom_j[1]+mom_j[2]*mom_j[2])));
+
+	      // Merge if angle between two taus is less than search cone angle
+	      if(angle < _coneAngle)
+		{
+		  double energy = tau_i->getEnergy() + tau_j->getEnergy();
+		  tau_i->setEnergy(energy);
+		  double mom[3] = {mom_i[0]+mom_j[0], mom_i[1]+mom_j[1], mom_i[2]+mom_j[2]};
+		  tau_i->setMomentum(mom);
+		  tau_i->setCharge(tau_i->getCharge() + tau_j->getCharge());
+
+		  double inv_mass = 0;
+		  double mom_sqrd = mom[0]*mom[0] + mom[1]*mom[1] + mom[2]*mom[2];
+		  if (energy*energy < mom_sqrd)
+		    {
+		      inv_mass = energy - sqrt(mom_sqrd);
+		    }
+		  else
+		    {
+		      inv_mass = sqrt(energy*energy - mom_sqrd);
+		    }
+
+		  // Add particles from one tau to the other
+		  std::vector<ReconstructedParticle*> merge_pfos = tau_j->getParticles();
+		  for (unsigned int p=0; p<merge_pfos.size(); p++)
+		    {
+		      tau_i->addParticle(merge_pfos[p]);
+		    }
+
+		  // Set the relations
+		  EVENT::LCObjectVec pfos_j = relationNavigator->getRelatedToObjects(tau_j);
+		  for (unsigned int o=0; o<pfos_j.size(); o++)
+		    {
+		      ReconstructedParticle *pfo = static_cast<ReconstructedParticle*>(pfos_j[o]);
+		      LCRelationImpl *rel = new LCRelationImpl(tau_i, pfo);
+		      relationcol->addElement(rel);
+		    }
+
+		  int n_charged = getNCharged(tau_i);
+		  
+		  // Merge fails if invariant mass too large or too many charged particles
+		  if (inv_mass > _invMass || n_charged > 4)
+		    {
+		      // Add tau to collection which failed merge
+		      taucol_merge->addElement(tau_i);
+
+		      // delete *iterJ;
+		      reco_tau_vec.erase(iterJ);
+		      erasecount++;
+		      j--;
+		      // delete *iterI;
+		      iterI = reco_tau_vec.erase(iterI);
+		      erasecount++;
+		      if (iterI != reco_tau_vec.end())
+			{
+			  tau_i = *iterI;
+			  mom_i = tau_i->getMomentum();
+			  // angle = 10000000;
+			}
+		    }
+
+		  else
+		    {
+		      // delete *iterJ;
+		      reco_tau_vec.erase(iterJ);
+		      erasecount++;
+		      j--;
+		    } 
+		}
+	    }
+	  iterI++;
+	}
+    }
+  delete relationNavigator;
+  
+  // Test for isolation and too many tracks
+  std::vector<ReconstructedParticleImpl*>::iterator iter = reco_tau_vec.begin();
+  _ntau = reco_tau_vec.size();
+  int erasecount = 0;
+  for (unsigned int t=0; t<reco_tau_vec.size(); t++)
+    {
+      ReconstructedParticleImpl *tau = static_cast<ReconstructedParticleImpl*>(reco_tau_vec[t]);
+      const double *mom_tau = tau->getMomentum();
+      double iso_energy = 0;
+      int n_charged = getNCharged(tau);
+      int n_particles = n_charged + getNNeutral(tau);
+
+      const double p_tau = sqrt(mom_tau[0]*mom_tau[0] + mom_tau[1]*mom_tau[1] + mom_tau[2]*mom_tau[2]);
+      
+      _tau_energy[t+erasecount] = tau->getEnergy();
+      _tau_p[t+erasecount] = p_tau;
+      _tau_pt[t+erasecount] = sqrt(mom_tau[0]*mom_tau[0] + mom_tau[1]*mom_tau[1]);
+      _tau_phi[t+erasecount] = TMath::ATan2(mom_tau[1], mom_tau[0]);
+      _tau_eta[t+erasecount] = 0.5*TMath::Log((p_tau + mom_tau[2])/(p_tau - mom_tau[2]));
+      _tau_invMass[t+erasecount] = sqrt(tau->getEnergy()*tau->getEnergy() - p_tau*p_tau);
+      
+      // Too many particles in tau 
+      if(n_particles > 10 || n_charged > 4)
+	{
+	  // Add tau to collection which failed number of particles
+	  taucol_nparticles->addElement(tau);
+
+	  // delete *iter;
+	  iter = reco_tau_vec.erase(iter);
+	  erasecount++;
+	  t--;
+	  continue;
+	}
+      
+      // Isolation energy exceeds threshold
+      for (unsigned int s=0; s<all_vector.size() ;s++ )
+	{
+	  ReconstructedParticle *pfo = static_cast<ReconstructedParticle*>(all_vector[s]);
+	  const double *mom_pfo = pfo->getMomentum();
+	  
+	  double angle = acos((mom_pfo[0]*mom_tau[0]+mom_pfo[1]*mom_tau[1]+mom_pfo[2]*mom_tau[2])/
+			    (sqrt(mom_pfo[0]*mom_pfo[0]+mom_pfo[1]*mom_pfo[1]+mom_pfo[2]*mom_pfo[2])*
+			     sqrt(mom_tau[0]*mom_tau[0]+mom_tau[1]*mom_tau[1]+mom_tau[2]*mom_tau[2])));
+
+	  if(angle > _coneAngle && angle < _isoAngle+_coneAngle)
+	    {
+	      iso_energy += pfo->getEnergy();
+	    }
+	}
+
+      _tau_isoE[t+erasecount] = iso_energy;
+      _event_num[t+erasecount] = _nEvt;
+      _run_num[t+erasecount] = _nRun;
+
+      if(iso_energy > _isoE)
+	{
+     	  // Add tau to collection which failed isolation energy
+	  taucol_isoenergy->addElement(tau);
+
+	  // delete *iter;
+	  iter=reco_tau_vec.erase(iter);
+	  erasecount++;
+	  t--;
+	}
+      else
+	{
+	  taucol->addElement(tau);  
+	  iter++;
+	}
+    }
+
+  evt->addCollection(taucol, _outCol);
+  evt->addCollection(relationcol, _tauPFOLinkCol);
+  evt->addCollection(taucol_nchargedtrks, _outColNChargedTrks);
+  evt->addCollection(taucol_invmass, _outColInvMass);
+  evt->addCollection(taucol_merge, _outColMerge);
+  evt->addCollection(taucol_nparticles, _outColNParticles);
+  evt->addCollection(taucol_isoenergy, _outColIsoEnergy);
+
+  anatree->Fill();
+  
+}
+
+// Sort energy from highest to lowest
+bool TauFinder::energySort(ReconstructedParticle *p1, ReconstructedParticle *p2)
 {
   return fabs(p1->getEnergy()) > fabs(p2->getEnergy());
 }
 
-// Function to calculate pseudorapidity (eta)
-double computeEta(const double p[3]) {
-  double pz = p[2];
-  double pt = sqrt(p[0] * p[0] + p[1] * p[1]);
-  return 0.5 *
-         log((sqrt(pt * pt + pz * pz) + pz) / (sqrt(pt * pt + pz * pz) - pz));
+// Get number of charged particles
+int TauFinder::getNCharged(ReconstructedParticleImpl *p)
+{
+  std::vector<ReconstructedParticle*> pfos = p->getParticles();
+  int n_charged = 0;
+  for (unsigned int i=0; i<pfos.size(); i++)
+    {
+      if (pfos[i]->getCharge())
+	{
+	  n_charged++;
+	}
+    }
+
+  return n_charged;
 }
 
-// Function to calculate azimuthal angle (phi)
-double computePhi(const double p[3]) { return atan2(p[1], p[0]); }
+// Get number of neutral particles
+int TauFinder::getNNeutral(ReconstructedParticleImpl *p)
+{
+  std::vector<ReconstructedParticle*> pfos = p->getParticles();
+  int n_neutral = 0;
+  for (unsigned int i=0; i<pfos.size(); i++)
+    {
+      if (!pfos[i]->getCharge())
+	{
+	  n_neutral++;
+	}
+    }
 
-// Function to compute deltaR between two particles
-double computeDeltaR(const double pvec[3], const double pvec_tau[3]) {
-  double eta1 = computeEta(pvec);
-  double eta2 = computeEta(pvec_tau);
+  return n_neutral;
+}
 
-  double phi1 = computePhi(pvec);
-  double phi2 = computePhi(pvec_tau);
+// Calculate pseudorapidity (eta)
+double TauFinder::computeEta(const double mom[3])
+{
+  double pz = mom[2];
+  double pt = sqrt(mom[0]*mom[0] + mom[1]*mom[1]);
+  return 0.5 * std::log((sqrt(pt*pt + pz*pz) + pz)/(sqrt(pt*pt + pz*pz) - pz));
+}
+
+// Calculate azimuthal angle (phi)
+double TauFinder::computePhi(const double mom[3])
+{
+  return atan2(mom[1], mom[0]);
+}
+
+// Compute deltaR between two particles
+double TauFinder::computeDeltaR(const double mom1[3], const double mom2[3])
+{
+  double eta1 = computeEta(mom1);
+  double eta2 = computeEta(mom2);
+
+  double phi1 = computePhi(mom1);
+  double phi2 = computePhi(mom2);
 
   double deltaEta = eta1 - eta2;
   double deltaPhi = phi1 - phi2;
@@ -73,678 +571,147 @@ double computeDeltaR(const double pvec[3], const double pvec_tau[3]) {
   if (deltaPhi < -M_PI)
     deltaPhi += 2 * M_PI;
 
-  return sqrt(deltaEta * deltaEta + deltaPhi * deltaPhi);
+  return sqrt(deltaEta*deltaEta + deltaPhi*deltaPhi);
 }
 
-TauFinder::TauFinder() : Processor("TauFinder") 
+bool TauFinder::findTau(std::vector<ReconstructedParticle*> &charged_vec, std::vector<ReconstructedParticle*> &neutral_vec,
+			std::vector<std::vector<ReconstructedParticle*>> &tau_vec)
 {
-  // modify processor description
-  _description = "TauFinder writes tau candidates as ReconstructedParticles into collection. It runs on a collection of ReconstructedParticels, if you want  to run on MCParticles you have to convert them before hand (use e.g. PrepareRECParticles processor)" ;
-  
-  // register steering parameters: name, description, class-variable, default value
-  
- 
-  //the link between the reconstructed tau and the input particles used for it
- 
+  // Initialize tau candidate
+  std::vector<ReconstructedParticle*> tau;
 
-  registerInputCollection( LCIO::RECONSTRUCTEDPARTICLE,
-			    "PFOCollection",
-                            "Collection of PFOs",
-                            _incol ,
-                            std::string("PandoraPFANewPFOs"));
-
-  registerOutputCollection( LCIO::RECONSTRUCTEDPARTICLE,
-			    "TauRecCollection",
-                            "Collection of Tau Candidates",
-                            _outcol ,
-                            std::string("TauRec_PFO"));
-  
-  registerOutputCollection( LCIO::RECONSTRUCTEDPARTICLE,
-			    "TauRecRestCollection",
-                            "Collection of Particles in Rest Group not in Tau Candidates",
-                            _outcolRest ,
-                            std::string("TauRecRest_PFO"));
-  
-  registerOutputCollection( LCIO::LCRELATION,
-			    "TauRecLinkCollectionName" , 
-			    "Name of the Tau link to ReconstructedParticle collection"  ,
-			    _colNameTauRecLink ,
-			    std::string("TauRecLink_PFO") ) ;
-  
-  registerProcessorParameter( "FileName_Signal",
-			      "Name of the Signal output file "  ,
-			      _OutputFile_Signal ,
-			      std::string("Signal.root") ) ;
-
- registerProcessorParameter( "pt_cut" ,
-                              "Cut on pt to suppress background"  ,
-                              _ptcut ,
-                              (float)0.2) ;
-  registerProcessorParameter( "cosT_cut" ,
-                              "Cut on cosT to suppress background"  ,
-                              _cosTcut ,
-                              (float)0.99) ;
-  
-  registerProcessorParameter( "searchConeAngle" ,
-                              "Opening angle of the search cone for tau jet in rad"  ,
-                              _coneAngle ,
-                              (float)0.05) ;
-
-  registerProcessorParameter( "isolationConeAngle" ,
-                              "Outer isolation cone around search cone of tau jet in rad (relativ to cone angle)"  ,
-                              _isoAngle ,
-                              (float)0.02) ;
-  
-  registerProcessorParameter( "isolationEnergy" ,
-                              "Energy allowed within isolation cone region"  ,
-                              _isoE ,
-                              (float)5.0) ;
-  
-  registerProcessorParameter( "ptseed" ,
-                              "Minimum tranverse momentum of tau seed"  ,
-                              _ptseed ,
-                              (float)5.0) ;
-  
-  registerProcessorParameter( "invariant_mass" ,
-                              "Upper limit on invariant mass of tau candidate"  ,
-                              _minv ,
-                              (float)2.0) ;
-}
-
-
-void TauFinder::init() 
-{ 
-  streamlog_out(DEBUG) << " init called  " << std::endl ;
-  
-  // usually a good idea to
-  printParameters() ;
-
-  rootfile = new TFile((_OutputFile_Signal).c_str (),"RECREATE");
-
-  anatree = new TTree("anatree", "TTree with information on taufinder process");
-
-  if (anatree == 0) {
-    throw lcio::Exception(" Invalid tree pointer !!! ");
-  }
-  anatree->Branch(("ntau"), &_ntau, ("ntau/I"));
-
-  anatree->Branch(("ngood"), &_ngood, ("ngood/I"));
-  anatree->Branch(("nfailseed"), &_nfail_seed, ("nfailseed/I"));
-  anatree->Branch(("nfailQtrack"), &_nfail_Qtrack, ("nfailQtrack/I"));
-  anatree->Branch(("nrej"), &_nrej, ("nrej/I"));
-
-  anatree->Branch(TString("t_isoE"), _tau_isoE, "t_isoE[ntau]/F");
-  anatree->Branch(TString("t_minv"), _tau_minv, TString("t_minv[ntau]/F"));
-  anatree->Branch(TString("t_pt"), _tau_pt, TString("t_pt[ntau]/F"));
-  anatree->Branch(TString("t_p"), _tau_p, TString("t_p[ntau]/F"));
-  anatree->Branch(TString("t_ene"), _tau_ene, TString("t_ene[ntau]/F"));
-  anatree->Branch(TString("t_phi"), _tau_phi, TString("t_phi[ntau]/F"));
-  anatree->Branch(TString("t_eta"), _tau_eta, TString("t_eta[ntau]/F"));
-  anatree->Branch(TString("t_nQ"), _tau_nQ, TString("t_nQ[ntau]/F"));
-  anatree->Branch(TString("t_nN"), _tau_nN, TString("t_nN[ntau]/F"));
-  anatree->Branch(TString("t_nQN"), _tau_nQN, TString("t_nQN[ntau]/F"));
-  anatree->Branch(TString("t_good"), _tau_good, TString("t_good[ntau]/I"));
-
-  anatree->Branch(("nrej_isoE"), &_nrej_isoE, ("nrej_isoE/I"));
-  anatree->Branch(("nrej_minv"), &_nrej_minv, ("nrej_minv/I"));
-  anatree->Branch(("nrej_nQ"), &_nrej_nQ, ("nrej_nQ/I"));
-  anatree->Branch(("nrej_nQN"), &_nrej_nQN, ("nrej_nQN/I"));
-
-  anatree->Branch(("event_num"), _event_num, ("event_num[ntau]/I"));
-
-  _nRun = 0 ;
-  _nEvt = 0 ;
-  _mergeTries=0;
-}
-
-void TauFinder::processRunHeader( LCRunHeader* )
-{ 
-  _nRun++ ;
-} 
-
-void TauFinder::processEvent( LCEvent * evt ) 
-{ 
-
-  // this gets called for every event 
-  // usually the working horse ...
-
-  _nrej = 0;
-  _nrej_isoE = 0;
-  _nrej_minv = 0;
-  _nrej_nQ = 0;
-  _nrej_nQN = 0;
-  _ntau = 0;
-  _ngood = 0;
-  _nfail_seed = 0;
-  _nfail_Qtrack = 0;
-  
-  LCCollection *colRECO;
-
-  try {
-    colRECO = evt->getCollection( _incol ) ;
-} catch (Exception& e) {
-    colRECO = 0;
-  }
- 
-  //LCRelation: to keep information from which particles the tau was made
-  LCCollectionVec *relationcol = new LCCollectionVec(LCIO::LCRELATION);
-  relationcol->parameters().setValue(std::string("FromType"),LCIO::RECONSTRUCTEDPARTICLE);
-  relationcol->parameters().setValue(std::string("ToType"),LCIO::RECONSTRUCTEDPARTICLE);
- 
-  _nEvt = evt->getEventNumber();  
-  
-  LCCollectionVec * reccol = new LCCollectionVec(LCIO::RECONSTRUCTEDPARTICLE);
-  LCCollectionVec * restcol = new LCCollectionVec(LCIO::RECONSTRUCTEDPARTICLE);
-  restcol->setSubset(1);
-  //sort all input particles into charged and neutral
-  std::vector<ReconstructedParticle*> Avector;//all particles
-  std::vector<ReconstructedParticle*> Qvector;//charged particles
-  std::vector<ReconstructedParticle*> Nvector;//neutral particles
-
-
-  if( colRECO != 0)
+  // Stop searching for tau if there are no charged particles in event
+  if(charged_vec.size()==0)
     {
-      int nRCP = colRECO->getNumberOfElements();
-  
-      for (int i = 0; i < nRCP; i++) 
-	{
-	  ReconstructedParticle *particle = static_cast<ReconstructedParticle*>( colRECO->getElementAt( i ) );
-	  double pt=sqrt(particle->getMomentum()[0]*particle->getMomentum()[0]
-			 +particle->getMomentum()[1]*particle->getMomentum()[1]);
-	  double Cos_T  = fabs(particle->getMomentum()[2]) / sqrt(pow(particle->getMomentum()[0],2)+pow(particle->getMomentum()[1],2) + pow(particle->getMomentum()[2],2));
-	  if(pt<_ptcut || Cos_T>_cosTcut)   
-	    continue;
-	  Avector.push_back(particle);
-	  if(particle->getCharge()==1 || particle->getCharge()==-1)
-	    Qvector.push_back(particle);
-	  else
-	    Nvector.push_back(particle);
-	}
-    }//colRECO
-
-  
-  //sort mc vec according to energy
-  std::sort(Qvector.begin(), Qvector.end(), MyEnergySort);
-  std::sort(Nvector.begin(), Nvector.end(), MyEnergySort);
-  
-  //vector to hold tau candidates
-  std::vector<std::vector<ReconstructedParticle*> > tauvec;
-  bool finding_done=false;
-  while(Qvector.size() && !finding_done)
-    finding_done= FindTau(Qvector,Nvector,tauvec);
-
-  if (tauvec.size() == 0) {
-
-    if (Qvector.size() == 0) {
-      if (_nEvt < coutUpToEv || _nEvt == coutEv)
-        streamlog_out(DEBUG)
-            << "No charged particle found in Evt " << _nEvt << endl;
-      ++_nfail_Qtrack;
-    }
-
-    else
-      ++_nfail_seed;
-  }
-  
-  //combine associated particles to tau
-  std::vector<std::vector<ReconstructedParticle*> >::iterator iterT=tauvec.begin();
-  std::vector<ReconstructedParticleImpl* > tauRecvec;
-  //remember number of charged tracks in each tau for possible merging later
-  std::vector<int> QTvec;
-  std::vector<int> NTvec;
-  for(unsigned int p=0;p<tauvec.size();p++)
-    {
-      ReconstructedParticleImpl *taurec=new ReconstructedParticleImpl();
-      double E=0;
-      double charge=0;
-      double mom[3]={0,0,0};
-      int chargedtracks=0;
-      int neutraltracks=0;
-      std::vector<ReconstructedParticle*> tau=tauvec[p];
-     
-      for(unsigned int tp=0;tp<tau.size();tp++)
-	{
-	  //add up energy and momentum
-	  E+=tau[tp]->getEnergy();
-	  charge+=tau[tp]->getCharge();
-	  mom[0]+=tau[tp]->getMomentum()[0];
-	  mom[1]+=tau[tp]->getMomentum()[1];
-	  mom[2]+=tau[tp]->getMomentum()[2];
-	  if(tau[tp]->getCharge())
-	    chargedtracks++;
-	  else
-	    neutraltracks++;
-	  taurec->addParticle(tau[tp]);
-	}
-      
-      double pt_tau=sqrt(mom[0]*mom[0]+mom[1]*mom[1]);
-      double psquare=pt_tau*pt_tau+mom[2]*mom[2];
-      double mass_inv=0;
-      
-      if(E*E<psquare)
-	mass_inv=E-sqrt(psquare);
-      else
-	mass_inv=sqrt(E*E-psquare);
-     
-      //check for invariant mass
-      if(mass_inv>_minv || mass_inv<-0.001 || chargedtracks>4 || chargedtracks==0)
-	{
-	  if(mass_inv>_minv){
-	    _nrej_minv++;
-	  }
-	  if(mass_inv<-0.001){
-	    _nrej_minv++;
-	  }
-	  if(chargedtracks>4 || chargedtracks==0){
-	    _nrej_nQ++;
-	  }
-
-	  //put those particles into rest group
-	  for(unsigned int tp=0;tp<tau.size();tp++)
-	    restcol->addElement(tau[tp]);
-	  
-	  iterT=tauvec.erase(iterT);
-	  p--;
-	  
-	  if(_nEvt<coutUpToEv || _nEvt==coutEv)
-	    {
-	      double phi=180./TMath::Pi()*atan(mom[1]/mom[0]);
-	      double theta=180./TMath::Pi()*atan(pt_tau/fabs(mom[2])); 
-	      streamlog_out(DEBUG) <<"Tau candidate failed: minv="<<mass_inv<<"   pt="<<pt_tau<<" "<<E<<" Q trks:"<<chargedtracks<<" N trks:"<<neutraltracks<<" "<<phi<<" "<<theta<<endl;
-	    }
-	  delete taurec;
-	  continue;
-	}
-      else
-	++iterT;
-
-      for(unsigned int tp=0;tp<tau.size();tp++) {
-	LCRelationImpl *rel = new LCRelationImpl(taurec,tau[tp]);
-	relationcol->addElement( rel );
-      }
-      
-      int pdg=15;
-      if(charge<0)
-	pdg=-15;
-	
-      taurec->setEnergy(E);
-      taurec->setCharge(charge);
-      taurec->setMomentum(mom);
-      taurec->setType(pdg);
-      if(_nEvt<coutUpToEv || _nEvt==coutEv)
-	{
-	  double phi=180./TMath::Pi()*atan(mom[1]/mom[0]);
-	  double theta=180./TMath::Pi()*atan(pt_tau/fabs(mom[2])); 
-	  streamlog_out(DEBUG)<<"Tau candidate "<<p<<": "<<E<<" Q trks:"<<chargedtracks<<" N trks:"<<neutraltracks<<" "<<phi<<" "<<theta<<endl;
-	}
-      QTvec.push_back(chargedtracks);
-      NTvec.push_back(neutraltracks);
-      tauRecvec.push_back(taurec);
-    }
-  //merge taus that are very close together, because they are likely to be from 1 tau that got split in algorithm
-  LCRelationNavigator *relationNavigator = new LCRelationNavigator( relationcol );
-
-  if(tauRecvec.size()>1)
-    {
-      std::vector<ReconstructedParticleImpl*>::iterator iterC=tauRecvec.begin();
-      std::vector<ReconstructedParticleImpl*>::iterator iterF=tauRecvec.begin();
-      int erasecount=0;
-      for ( unsigned int t=0; t<tauRecvec.size() ; t++ )
-	{
-	  ReconstructedParticleImpl *tau=static_cast<ReconstructedParticleImpl*>(tauRecvec[t]);
-	  const double *mom=tau->getMomentum();
-	  double pt_tau=sqrt(mom[0]*mom[0]+mom[1]*mom[1]);
-	  double phi=180./TMath::Pi()*atan(mom[1]/mom[0]);
-	  double theta=180./TMath::Pi()*atan(pt_tau/fabs(mom[2])); 
-	  double angle=10000000;
-	 
-	  for ( unsigned int t2=t+1; t2<tauRecvec.size() ; t2++ )
-	    {
-	      iterC=tauRecvec.begin()+t2;
-	      ReconstructedParticleImpl *taun=static_cast<ReconstructedParticleImpl*>(tauRecvec[t2]);
-	      
-	      const double *momn=taun->getMomentum();
-	      angle=acos((mom[0]*momn[0]+mom[1]*momn[1]+mom[2]*momn[2])/
-			 (sqrt(mom[0]*mom[0]+mom[1]*mom[1]+mom[2]*mom[2])*
-			  sqrt(momn[0]*momn[0]+momn[1]*momn[1]+momn[2]*momn[2])));
-	      //merging happens
-	      if(angle<_coneAngle)
-		{
-		  _mergeTries++;
-		  double E=tau->getEnergy();
-		  double En=E+taun->getEnergy();
-		  tau->setEnergy(En);
-		  double newp[3]={mom[0]+momn[0],mom[1]+momn[1],mom[2]+momn[2]};
-		  tau->setMomentum(newp);		  
-		  tau->setCharge(tau->getCharge()+taun->getCharge());
-
-		  if(_nEvt<coutUpToEv || _nEvt==coutEv)
-		    {
-		      streamlog_out(DEBUG)<<" Tau Merging: "<<endl;
-		      streamlog_out(DEBUG)<<t<<" "<<E<<" "<<phi<<" "<<theta<<endl;
-		      streamlog_out(DEBUG)<<t2<<" "<<taun->getEnergy()<<" "<<angle<<" -> "<<En<<" "<<QTvec[t]+QTvec[t2]<<endl;
-		    }
-		  
-		  //check for invariant mass and number of tracks
-		  double ptn=sqrt(newp[0]*newp[0]+newp[1]*newp[1]);
-		  double psquaren=ptn*ptn+newp[2]*newp[2];
-		  double mass_inv=0;
-		  if(En*En<psquaren)
-		    mass_inv=En*En-psquaren;
-		  else
-		    mass_inv= sqrt(En*En-psquaren);
-		  //failed to merge
-		  if(mass_inv>_minv || mass_inv<-0.001 ||  QTvec[t+erasecount]+QTvec[t2+erasecount]>4)
-		    {
-		      if(mass_inv>_minv){
-			_nrej_minv++;
-		      }
-		      if(mass_inv<-0.001){
-			_nrej_minv++;
-		      }
-		      if(QTvec[t+erasecount]+QTvec[t2+erasecount]>4){
-       			_nrej_nQ++;
-		      }
-		      
-		      //put those particles into rest group
-		      for(unsigned int tp=0;tp<(*iterC)->getParticles().size();tp++)
-			restcol->addElement((*iterC)->getParticles()[tp]);
-		      for(unsigned int tp=0;tp<(*iterF)->getParticles().size();tp++)
-			restcol->addElement((*iterF)->getParticles()[tp]);
-		      
-		      delete *iterC;
-		      tauRecvec.erase(iterC);
-		      erasecount++;
-		      t2--;
-		      delete *iterF;
-		      iterF=tauRecvec.erase(iterF);
-		      erasecount++;
-		      if(iterF!=tauRecvec.end())
-			{
-			  tau=*iterF;
-			  mom=tau->getMomentum();
-			  pt_tau=sqrt(mom[0]*mom[0]+mom[1]*mom[1]);
-			  phi=180./TMath::Pi()*atan(mom[1]/mom[0]);
-			  theta=180./TMath::Pi()*atan(pt_tau/fabs(mom[2])); 
-			  angle=10000000;
-			}
-		    }
-		  else //merge
-		    {
-		      //set the relations and add particles from one tau to the other
-		      std::vector< ReconstructedParticle * > mergetaus=taun->getParticles();
-		      for(unsigned int p=0;p<mergetaus.size();p++)
-			tau->addParticle(mergetaus[p]);
-		      EVENT::LCObjectVec relobjFROM = relationNavigator->getRelatedToObjects(taun);
-		      for(unsigned int o=0;o<relobjFROM.size();o++)
-			{
-			  ReconstructedParticle *rec=static_cast<ReconstructedParticle*>(relobjFROM[o]);
-			  LCRelationImpl *rel = new LCRelationImpl(tau,rec);
-			  relationcol->addElement( rel );
-			}
-		      delete *iterC;
-		      tauRecvec.erase(iterC);
-		      erasecount++;
-		      t2--;
-		    }
-		}
-	    }
-	  iterF++;
-	}
-    }
-  delete relationNavigator;
-  //test for isolation and too many tracks
-  std::vector<ReconstructedParticleImpl*>::iterator iter=tauRecvec.begin();
-  _ntau = tauRecvec.size();
-  int erasecount=0;
-  for ( unsigned int t=0; t<tauRecvec.size() ; t++ )
-    {
-      ReconstructedParticleImpl *tau=static_cast<ReconstructedParticleImpl*>(tauRecvec[t]);
-      double E_iso=0;
-      int nparticles=0;
-      const double *pvec_tau=tau->getMomentum();
-      const double p_tau =
-        sqrt(pvec_tau[0] * pvec_tau[0] + pvec_tau[1] * pvec_tau[1] +
-             pvec_tau[2] * pvec_tau[2]);
-
-      _tau_nQ[t + erasecount] = QTvec[t + erasecount];
-      _tau_nN[t + erasecount] = NTvec[t + erasecount];
-      _tau_nQN[t + erasecount] = QTvec[t + erasecount] + NTvec[t + erasecount];
-      _tau_ene[t + erasecount] = tau->getEnergy();
-      _tau_p[t + erasecount] = p_tau;
-      _tau_pt[t + erasecount] =
-        sqrt(pvec_tau[0] * pvec_tau[0] + pvec_tau[1] * pvec_tau[1]);
-      _tau_phi[t + erasecount] = TMath::ATan2(pvec_tau[1], pvec_tau[0]);
-      _tau_eta[t + erasecount] =
-        0.5 * TMath::Log((p_tau + pvec_tau[2]) / (p_tau - pvec_tau[2]));
-      ;
-      _tau_minv[t + erasecount] =
-        sqrt(tau->getEnergy() * tau->getEnergy() - p_tau * p_tau);
-      
-      //too many particles in tau 
-      if(QTvec[t+erasecount]+NTvec[t+erasecount]>10 || QTvec[t+erasecount]>4)
-	{
-       	  _nrej_nQ++;
-	  if(_nEvt<coutUpToEv || _nEvt==coutEv)
-	    streamlog_out(DEBUG) <<"Tau "<<tau->getEnergy()
-                                 <<": too many particles: "<<QTvec[t+erasecount]<<" "<<NTvec[t+erasecount]<<endl;
-	  _tau_good[t + erasecount] = 0;
-	  //put those particles into rest group
-	  for(unsigned int tp=0;tp<(*iter)->getParticles().size();tp++)
-	    restcol->addElement((*iter)->getParticles()[tp]);
-	  delete *iter;
-	  iter=tauRecvec.erase(iter);
-	  erasecount++;
-	  t--;
-	  continue;
-	}
-      //isolation
-      for ( unsigned int s=0; s<Avector.size() ; s++ )
-	{
-	  ReconstructedParticle *track=static_cast<ReconstructedParticle*>(Avector[s]);
-	  const double *pvec=track->getMomentum();
-	  double angle=acos((pvec[0]*pvec_tau[0]+pvec[1]*pvec_tau[1]+pvec[2]*pvec_tau[2])/
-			    (sqrt(pvec[0]*pvec[0]+pvec[1]*pvec[1]+pvec[2]*pvec[2])*
-			     sqrt(pvec_tau[0]*pvec_tau[0]+pvec_tau[1]*pvec_tau[1]+pvec_tau[2]*pvec_tau[2])));
-	  if(angle>_coneAngle && angle<_isoAngle+_coneAngle)
-	    {
-	      nparticles++;
-	      E_iso+=track->getEnergy();
-	    }
-	}
-
-      _tau_isoE[t + erasecount] = E_iso;
-
-      _event_num[t + erasecount] = _nEvt;
-      
-      if(E_iso>_isoE)
-	{
-     	  _nrej_isoE++;
-	  if(_nEvt<coutUpToEv || _nEvt==coutEv)
-	    streamlog_out(DEBUG) <<"Tau "<<tau->getEnergy()
-                                 <<": Isolation Energy: "<<E_iso<<" in "<<nparticles<<" particles"<<endl;
-	  _tau_good[t+erasecount] = 0;
-	  //put those particles into rest group
-	  for(unsigned int tp=0;tp<(*iter)->getParticles().size();tp++)
-	    restcol->addElement((*iter)->getParticles()[tp]);
-	  delete *iter;
-	  iter=tauRecvec.erase(iter);
-	  erasecount++;
-	  t--;
-	}
-      else
-	{
-	  reccol->addElement(tau);  
-	  streamlog_out(DEBUG) << "Tau "<<tau->getEnergy()<<" "<<QTvec[t+erasecount]<<" "<<NTvec[t+erasecount]<<endl;	  
-	  _tau_good[t+erasecount] = 1;
-	  _ngood++;
-	  iter++;
-	}
-    }
-
-    _nrej = _nrej_isoE + _nrej_minv + _nrej_nQ + _nrej_nQN;
-  
-  //put remaining particles into rest group
-  for(unsigned int tp=0;tp<Qvector.size();tp++)
-    restcol->addElement(Qvector[tp]);
-  for(unsigned int tp=0;tp<Nvector.size();tp++)
-    restcol->addElement(Nvector[tp]);
-
-  evt->addCollection(reccol,_outcol);
-  evt->addCollection(restcol,_outcolRest);
-  evt->addCollection(relationcol,_colNameTauRecLink);
-
-  anatree->Fill();
-  
-  _nEvt ++ ;
-  
-}
-
-bool TauFinder::FindTau(std::vector<ReconstructedParticle*> &Qvec,std::vector<ReconstructedParticle*> &Nvec,
-			std::vector<std::vector<ReconstructedParticle*> > &tauvec)
-{
-  std::vector<ReconstructedParticle*>  tau;
-  if(Qvec.size()==0)
-    {
-      if(_nEvt<coutUpToEv || _nEvt==coutEv)
-	streamlog_out(DEBUG) << "No charged particle in event!"<<endl;
       return true;
     }
-  double OpAngleMax=0;
-  //find a good tauseed, check impact parameter 
-  ReconstructedParticle *tauseed=NULL;
-  std::vector<ReconstructedParticle*>::iterator iterS=Qvec.begin();
-  for ( unsigned int s=0; s<Qvec.size() ; s++ )
+  
+  // Find a tau seed 
+  ReconstructedParticle *tau_seed = NULL;
+  
+  std::vector<ReconstructedParticle*>::iterator iterS = charged_vec.begin();
+  for (unsigned int s=0; s<charged_vec.size(); s++)
     {
-      tauseed=static_cast<ReconstructedParticle*>(Qvec[s]);
-      float mom[3];
-      for (int icomp=0; icomp<3; ++icomp) 
-	mom[icomp]=(float)tauseed->getMomentum()[icomp];
+      tau_seed = static_cast<ReconstructedParticle*>(charged_vec[s]);
 
-      double pt=sqrt(mom[0]*mom[0]+mom[1]*mom[1]);
+      std::vector<double> mom(3);
+      for (int i=0; i<3; ++i)
+	{
+	  mom[i] = tau_seed->getMomentum()[i];
+	}
+      
+      double pt = sqrt(mom[0]*mom[0] + mom[1]*mom[1]);
 
-      if(pt>_ptseed)
-	break;
+      // Stop searching for seed if pt exceeds threshold
+      if(pt > _ptSeed)
+	{
+	  break;
+	}
       else
 	{
 	  iterS++;
-	  tauseed=NULL;
+	  tau_seed=NULL;
 	}
     }
-  if(!tauseed)
+
+  // Stop searching for tau if no seed is found
+  if(!tau_seed)
     {
-      if(_nEvt<coutUpToEv || _nEvt==coutEv)
-	streamlog_out(DEBUG) << "no further tau seed!"<<endl;
       return true;
     }
-  
-  double  Etau=tauseed->getEnergy();
- 
-  tau.push_back(tauseed);
 
-  // just for printing out info
-  {
-    const double *pvec=tauseed->getMomentum();
-    double pt=sqrt(pvec[0]*pvec[0]+pvec[1]*pvec[1]);
-    double p=sqrt(pt*pt+pvec[2]*pvec[2]);
-    double phi=180./TMath::Pi()*atan(pvec[1]/pvec[0]);
-    double theta=180./TMath::Pi()*atan(pt/fabs(pvec[2]));
- 
-    if(_nEvt<coutUpToEv || _nEvt==coutEv)
-      streamlog_out(DEBUG) << "seeding: "<<tauseed->getType()<<"\t"<<tauseed->getEnergy()<<"\t"<<p<<"\t"<<theta<<"\t"<<phi<<endl;
-  }
+  // Remove seed from charged particle vector
+  charged_vec.erase(iterS);
 
-  Qvec.erase(iterS);
-  double pvec_tau[3]={0,0,0};
-  pvec_tau[0]=tauseed->getMomentum()[0];
-  pvec_tau[1]=tauseed->getMomentum()[1];
-  pvec_tau[2]=tauseed->getMomentum()[2];
+  // Add seed to tau candidate and set energy and momentum
+  tau.push_back(tau_seed);
+  double tau_energy = tau_seed->getEnergy();
+  std::vector<double> tau_mom(3);
+  tau_mom[0] = tau_seed->getMomentum()[0];
+  tau_mom[1] = tau_seed->getMomentum()[1];
+  tau_mom[2] = tau_seed->getMomentum()[2];
 
-  //assign charged particles to tau candidate
-  std::vector<ReconstructedParticle*>::iterator iterQ=Qvec.begin();
-  for (unsigned int s=0; s<Qvec.size() ; s++ )
+  // Assign charged particles to tau candidate
+  std::vector<ReconstructedParticle*>::iterator iterQ = charged_vec.begin();
+  for (unsigned int q=0; q<charged_vec.size(); q++)
     {
-      ReconstructedParticle *track=static_cast<ReconstructedParticle*>(Qvec[s]);
+      ReconstructedParticle *charged = static_cast<ReconstructedParticle*>(charged_vec[q]);
 
-      const double *pvec=track->getMomentum();
-      double angle=acos((pvec[0]*pvec_tau[0]+pvec[1]*pvec_tau[1]+pvec[2]*pvec_tau[2])/
-			(sqrt(pvec[0]*pvec[0]+pvec[1]*pvec[1]+pvec[2]*pvec[2])*
-			 sqrt(pvec_tau[0]*pvec_tau[0]+pvec_tau[1]*pvec_tau[1]+pvec_tau[2]*pvec_tau[2])));
-      double pt=sqrt(pvec[0]*pvec[0]+pvec[1]*pvec[1]);
-      double p=sqrt(pt*pt+pvec[2]*pvec[2]);
-      double phi=180./TMath::Pi()*atan(pvec[1]/pvec[0]);
-      double theta=180./TMath::Pi()*atan(pt/fabs(pvec[2]));
+      std::vector<double> charged_mom(3);
+      charged_mom[0] = charged->getMomentum()[0];
+      charged_mom[1] = charged->getMomentum()[1];
+      charged_mom[2] = charged->getMomentum()[2];
       
-      if(angle<_coneAngle)
+      double angle = acos((charged_mom[0]*tau_mom[0]+charged_mom[1]*tau_mom[1]+charged_mom[2]*tau_mom[2])/
+			(sqrt(charged_mom[0]*charged_mom[0]+charged_mom[1]*charged_mom[1]+charged_mom[2]*charged_mom[2])*
+			 sqrt(tau_mom[0]*tau_mom[0]+tau_mom[1]*tau_mom[1]+tau_mom[2]*tau_mom[2])));
+
+      // Add charged particle to tau candidate if inside search cone
+      if(angle < _coneAngle)
 	{
-	  if(angle>OpAngleMax)
-	    OpAngleMax=angle;
-	  tau.push_back(Qvec[s]);
-	  if(_nEvt<coutUpToEv || _nEvt==coutEv)
-	    streamlog_out(DEBUG) << "Adding Q: "<<track->getType()<<"\t"<<track->getEnergy()<<"\t"<<p<<"\t"<<theta<<"\t"<<phi<<std::endl;
-	  Etau+=Qvec[s]->getEnergy();
-	  //combine to new momentum
-	  for(int i=0;i<3;i++){
-	    pvec_tau[i]=pvec_tau[i]+track->getMomentum()[i];
-	  }
-	  Qvec.erase(iterQ);
-	  s--;
+	  tau.push_back(charged_vec[q]);
+	  tau_energy += charged_vec[q]->getEnergy();
+	  for(int i=0; i<3; i++)
+	    {
+	      tau_mom[i] += charged_mom[i];
+	    }
+
+	  // Remove charged particle from charged particle vector
+	  charged_vec.erase(iterQ);
+	  q--;
 	}
       else
 	iterQ++;
     }
-  //assign neutral particles to tau candidate
-  std::vector<ReconstructedParticle*>::iterator iterN=Nvec.begin();
-  for (unsigned int s=0; s<Nvec.size() ; s++ )
+  
+  // Assign neutral particles to tau candidate
+  std::vector<ReconstructedParticle*>::iterator iterN = neutral_vec.begin();
+  for (unsigned int n=0; n<neutral_vec.size(); n++)
     {
-      ReconstructedParticle *track=Nvec[s];
- 
-      double *pvec=(double*)track->getMomentum();
-      double angle=acos((pvec[0]*pvec_tau[0]+pvec[1]*pvec_tau[1]+pvec[2]*pvec_tau[2])/
-			(sqrt(pvec[0]*pvec[0]+pvec[1]*pvec[1]+pvec[2]*pvec[2])*
-			 sqrt(pvec_tau[0]*pvec_tau[0]+pvec_tau[1]*pvec_tau[1]+pvec_tau[2]*pvec_tau[2])));
-      double pt=sqrt(pvec[0]*pvec[0]+pvec[1]*pvec[1]);
-      double p=sqrt(pt*pt+pvec[2]*pvec[2]);
-      double phi=180./TMath::Pi()*atan(pvec[1]/pvec[0]);
-      double theta=180./TMath::Pi()*atan(pt/fabs(pvec[2]));
-      
-      if(angle<_coneAngle)
-	{
-	  if(angle>OpAngleMax)
-	    OpAngleMax=angle;
-	  tau.push_back(Nvec[s]);
-	  if(_nEvt<coutUpToEv || _nEvt==coutEv)
-            streamlog_out(DEBUG) << "Adding N: "<<track->getType()
-                                 <<"\t"<<track->getEnergy()
-                                 <<"\t"<<p
-                                 <<"\t"<<theta
-                                 <<"\t"<<phi<<std::endl;
+      ReconstructedParticle *neutral = neutral_vec[n];
 
-	  Etau+=Nvec[s]->getEnergy();
-	  //combine to new momentum
-	  for(int i=0;i<3;i++){
-	    pvec_tau[i]=pvec_tau[i]+track->getMomentum()[i];
-	  }
-	  s--;
-	  Nvec.erase(iterN);
+      std::vector<double> neutral_mom(3);
+      neutral_mom[0] = neutral->getMomentum()[0];
+      neutral_mom[1] = neutral->getMomentum()[1];
+      neutral_mom[2] = neutral->getMomentum()[2];
+      
+      double angle = acos((neutral_mom[0]*tau_mom[0]+neutral_mom[1]*tau_mom[1]+neutral_mom[2]*tau_mom[2])/
+			(sqrt(neutral_mom[0]*neutral_mom[0]+neutral_mom[1]*neutral_mom[1]+neutral_mom[2]*neutral_mom[2])*
+			 sqrt(tau_mom[0]*tau_mom[0]+tau_mom[1]*tau_mom[1]+tau_mom[2]*tau_mom[2])));
+
+      // Add neutral particle to tau candidate if inside search cone
+      if(angle < _coneAngle)
+	{
+	  tau.push_back(neutral_vec[n]);
+	  tau_energy += neutral_vec[n]->getEnergy();
+	  for(int i=0; i<3; i++)
+	    {
+	      tau_mom[i] += neutral_mom[i];
+	    }
+	  
+	  // Remove neutral particle from neutral particle vector
+	  neutral_vec.erase(iterN);
+	  n--;
 	}
       else 
 	iterN++;
     }
-  tauvec.push_back(tau);
+
+  // Add tau candidate to tau candidate vector
+  tau_vec.push_back(tau);
+
+  // Continue to search for tau candidates
   return false;
 }
 
 void TauFinder::check( LCEvent* ) {
-  // nothing to check here - could be used to fill checkplots in reconstruction processor
+  // Nothing to check here - could be used to fill checkplots in reconstruction processor
 }
 
 
-void TauFinder::end(){ 
+void TauFinder::end(){
   anatree->Write();
   rootfile->Write();
   delete anatree;
   delete rootfile;
- 
-
 }

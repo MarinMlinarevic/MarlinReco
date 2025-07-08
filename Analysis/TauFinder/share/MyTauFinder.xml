@@ -36,32 +36,38 @@
     <!--==========TAUS============-->
     <processor name="MyTauFinder" type="TauFinder">
         <!--TauFinder writes tau candidates as ReconstructedParticles into collection. It runs on a collection of ReconstructedParticels, if you want  to run on MCParticles you have to convert them before hand (use e.g. PrepareRECParticles processor)-->
-        <!--Name of the Signal output file -->
-        <parameter name="FileName_Signal" type="string">Taus_default.root </parameter>
         <!--Collection of PFOs-->
         <parameter name="PFOCollection" type="string" lcioInType="ReconstructedParticle">PandoraPFOs </parameter>
         <!--Collection of Tau Candidates-->
-        <parameter name="TauRecCollection" type="string" lcioOutType="ReconstructedParticle">TauRec_PFO </parameter>
+        <parameter name="RecoTauCollection" type="string" lcioOutType="ReconstructedParticle">RecoTaus </parameter>
         <!--Name of the Tau link to ReconstructedParticle collection-->
-        <parameter name="TauRecLinkCollectionName" type="string" lcioOutType="LCRelation">TauRecLink_PFO </parameter>
-        <!--Collection of Particles in Rest Group not in Tau Candidates-->
-        <parameter name="TauRecRestCollection" type="string" lcioOutType="ReconstructedParticle">TauRecRest_PFO </parameter>
+	<parameter name="RecoTauChargedTrackCollection" type="string" lcioOutType="ReconstructedParticle">RecoTausNChargedTrks </parameter>
+        <!--Name of the Tau link to ReconstructedParticle collection-->
+        <parameter name="RecoTauInvMassCollection" type="string" lcioOutType="ReconstructedParticle">RecoTausInvMass </parameter>
+	<!--Name of the Tau link to ReconstructedParticle collection-->
+        <parameter name="RecoTauMergeCollection" type="string" lcioOutType="ReconstructedParticle">RecoTausMerge </parameter>
+	<!--Name of the Tau link to ReconstructedParticle collection-->
+        <parameter name="RecoTauNParticlesCollection" type="string" lcioOutType="ReconstructedParticle">RecoTausNParticles </parameter>
+	<!--Name of the Tau link to ReconstructedParticle collection-->
+        <parameter name="RecoTauIsoEnergyCollection" type="string" lcioOutType="ReconstructedParticle">RecoTausIsoEnergy </parameter>
+        <!--Name of the Tau link to ReconstructedParticle collection-->
+	<parameter name="TauPFOLinkCollectionName" type="string" lcioOutType="LCRelation">TauPFOLink </parameter>
         <!--verbosity level of this processor ("DEBUG0-4,MESSAGE0-4,WARNING0-4,ERROR0-4,SILENT")-->
         <parameter name="Verbosity" type="string">DEBUG4</parameter>
-        <!--Cut on cosT to suppress background-->
-        <parameter name="cosT_cut" type="float">0.99 </parameter>
-        <!--Upper limit on invariant mass of tau candidate-->
-        <parameter name="invariant_mass" type="float">2 </parameter>
+	<!--Name of output file-->
+	<parameter name="fileName" type="string">taufinder_cone_15_pt_1000.root</parameter>
         <!--Outer isolation cone around search cone of tau jet in rad (relativ to cone angle)-->
         <parameter name="isolationConeAngle" type="float">0.2 </parameter>
         <!--Energy allowed within isolation cone region-->
-        <parameter name="isolationEnergy" type="float">5 </parameter>
+        <parameter name="isolationEnergy" type="float">100000</parameter>
         <!--Cut on pt to suppress background-->
-        <parameter name="pt_cut" type="float">0.1 </parameter>
+        <parameter name="ptCut" type="float">1.0</parameter>
         <!--Minimum tranverse momentum of tau seed-->
-        <parameter name="ptseed" type="float">5 </parameter>
+        <parameter name="ptSeed" type="float">1.0</parameter>
         <!--Opening angle of the search cone for tau jet in rad-->
-        <parameter name="searchConeAngle" type="float">0.05 </parameter>
+        <parameter name="searchConeAngle" type="float">0.15</parameter>
+	<!--Cut on inv mass of reconstructed tau-->
+        <parameter name="invMass" type="float">100000</parameter>
     </processor>
 
     <processor name="MyAIDAProcessor" type="AIDAProcessor">
@@ -69,7 +75,7 @@
         <!-- compression of output file 0: false >0: true (default) -->
         <parameter name="Compress" type="int" value="1"/>
         <!-- filename without extension-->
-        <parameter name="FileName" type="string" value="output_taufinder_default"/>
+        <parameter name="FileName" type="string" value="output_taufinder_cone_15_pt_1000"/>
         <!-- type of output file xml (default) or root ( only OpenScientist)-->
         <parameter name="FileType" type="string" value="root "/>
     </processor>
@@ -81,7 +87,7 @@
 
     <!-- LCIO output: keep all collections -->
     <processor name="LCIOWriter" type="LCIOOutputProcessor">
-        <parameter name="LCIOOutputFile" type="string"> output_taufinder_default.slcio </parameter>
+        <parameter name="LCIOOutputFile" type="string"> output_taufinder_cone_15_pt_1000.slcio </parameter>
         <parameter name="FullSubsetCollections" type="StringVec"></parameter>
         <parameter name="DropCollectionTypes" type="StringVec">
         CalorimeterHit
@@ -98,8 +104,13 @@
         <parameter name="KeepCollectionNames" type="StringVec">
         MCParticle
         RecoMCTruthLink
-        TauRecLink_PFO
-        TauRec_PFO
+        TauPFOLink
+        RecoTaus
+	RecoTausInvMass
+	RecoTausNChargedTrks
+	RecoTausMerge
+	RecoTausNParticles
+	RecoTausIsoEnergy
         SiTracks_Refitted
         PandoraPFOs
         </parameter>

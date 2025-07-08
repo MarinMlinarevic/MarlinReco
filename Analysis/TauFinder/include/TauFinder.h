@@ -12,6 +12,7 @@
 #include "TSystem.h"
 #include <EVENT/MCParticle.h>
 #include <EVENT/ReconstructedParticle.h>
+#include <IMPL/ReconstructedParticleImpl.h>
 
 using namespace lcio ;
 using namespace marlin ;
@@ -35,76 +36,82 @@ class TauFinder : public Processor {
   TauFinder(const TauFinder&) = delete;
   TauFinder& operator=(const TauFinder&) = delete;
 
-  /** Called at the begin of the job before anything is read.
-   * Use to initialize the processor, e.g. book histograms.
-   */
+  // Called at the begin of the job before anything is read
   virtual void init() ;
   
-  /** Called for every run.
-   */
+  // Called for every run
   virtual void processRunHeader( LCRunHeader* run ) ;
   
-  /** Called for every event - the working horse.
-   */
+  // Called for every event - the working horse
   virtual void processEvent( LCEvent * evt ) ; 
   
   
   virtual void check( LCEvent * evt ) ; 
   
   
-  /** Called after data processing for clean up.
-   */
-  virtual void end() ;
-  
+  // Called after data processing for clean up
+  virtual void end() ;  
   
  protected:
 
-  /** Input collection name.
-   */
-  std::string _colNameMC{}, _colNameRECO{}, _incol{};
-  std::string _colNameMCTruth{}, _colNameTauRecLink{};
-  std::string _outcol{}, _outcolRest{};
-  std::string _OutputFile_Signal{};
-  int _nRun=-1;
-  int _nEvt=-1;
+  // Input collection name
+  std::string _inCol{};
 
-  float _ptcut=0.0,_ptseed=0.0,_cosTcut=0.0;
-  float _coneAngle=0.0,_isoAngle=0.0,_isoE=0.0;
-  float _D0seedmin=0.0, _D0seedmax=0.0,_minv=0.0;
+  // Output relation collection name
+  std::string _tauPFOLinkCol{};
 
-  int _mergeTries=0.0;
+  // Output reco tau collection names
+  std::string _outCol{}, _outColNChargedTrks{}, _outColInvMass{}, _outColMerge{}, _outColNParticles{}, _outColIsoEnergy{};
+
+  // Output file name
+  std::string _outputFile{};
   
-  TFile *rootfile=NULL;
-  TTree *anatree=NULL;
+  // TauFinder selection cuts
+  float _ptCut = 0.0, _ptSeed = 0.0, _coneAngle = 0.0, _isoAngle = 0.0, _isoE = 0.0, _invMass = 0.0;
+
+  int _nRun = -1;
+  int _nEvt = -1;
+
+  TFile *rootfile = NULL;
+  TTree *anatree = NULL;
   
-  bool FindTau(std::vector<ReconstructedParticle*> &Qvec,std::vector<ReconstructedParticle*> &Nvec,
-	       std::vector<std::vector<ReconstructedParticle*> > &tauvec);
+  // Tau reconstruction
+  bool findTau(std::vector<ReconstructedParticle*> &charged_vec,std::vector<ReconstructedParticle*> &neutral_vec,
+	       std::vector<std::vector<ReconstructedParticle*> > &tau_vec);
 
  private:
-  int _ntau{};
-  int _ngood{};
-  int _nfail_seed{};
-  int _nfail_Qtrack{};
-  int _nrej{};
-  int _nrej_isoE{};
-  int _nrej_minv{};
-  int _nrej_nQ{};
-  int _nrej_nQN{};
 
+  int _ntau{};
   float _tau_isoE[NTAU_MAX]{};
-  float _tau_minv[NTAU_MAX]{};
+  float _tau_invMass[NTAU_MAX]{};
   float _tau_pt[NTAU_MAX]{};
   float _tau_p[NTAU_MAX]{};
-  float _tau_ene[NTAU_MAX]{};
+  float _tau_energy[NTAU_MAX]{};
   float _tau_phi[NTAU_MAX]{};
   float _tau_eta[NTAU_MAX]{};
-  float _tau_nQ[NTAU_MAX]{};
-  float _tau_nN[NTAU_MAX]{};
-  float _tau_nQN[NTAU_MAX]{};
-  int _tau_good[NTAU_MAX]{};
   int _event_num[NTAU_MAX]{};
- } ;
+  int _run_num[NTAU_MAX]{};
+  
+  // Energy sort 
+  static bool energySort(ReconstructedParticle *p1, ReconstructedParticle *p2);
 
+  // Get number of charged particles
+  static int getNCharged(ReconstructedParticleImpl *p);
+
+  // Get number of neutral particles
+  static int getNNeutral(ReconstructedParticleImpl *p);
+  
+  // Compute pseudorapidity (eta)
+  static double computeEta(const double mom[3]);
+
+  // Compute azimuthal angle (phi)
+  static double computePhi(const double mom[3]);
+
+  // Compute delta R
+  static double computeDeltaR(const double mom1[3], const double mom2[3]);
+
+};
+  
 #endif
 
 
