@@ -110,6 +110,9 @@ class TauFinder : public Processor {
   // Compute delta R
   static double computeDeltaR(const double mom1[3], const double mom2[3]);
 
+  // Compute dynamic cone angle
+  static float computeDynamicCone(float pt);
+
 };
   
 #endif

@@ -191,7 +191,7 @@ void TauFinder::processEvent( LCEvent * evt )
   std::vector<ReconstructedParticle*> charged_vector; // Charged particles
   std::vector<ReconstructedParticle*> neutral_vector; // Neutral particles
 
-  // Keep reconstructed PFOs which pass pt selection cut
+  // Keep reconstructed PFOs which pass pt selection cut and remove neutrons
   if(recoCol != 0)
     {
       int nReco = recoCol->getNumberOfElements();
@@ -201,8 +201,9 @@ void TauFinder::processEvent( LCEvent * evt )
 
 	  double pt = sqrt(pfo->getMomentum()[0]*pfo->getMomentum()[0]
 			 + pfo->getMomentum()[1]*pfo->getMomentum()[1]);
+	  int pfo_type = pfo->getType();
 
-	  if(pt < _ptCut)
+	  if(pt < _ptCut || pfo_type == 2112)
 	    {
 	      continue;
 	    }
@@ -574,6 +575,15 @@ double TauFinder::computeDeltaR(const double mom1[3], const double mom2[3])
   return sqrt(deltaEta*deltaEta + deltaPhi*deltaPhi);
 }
 
+// Compute dynamic cone angle
+float TauFinder::computeDynamicCone(float pt)
+{
+  if (pt < 10.0) return 0.6;
+  else if (pt > 10.0 && pt < 120.0) return std::max(6.0/pt, 0.05);
+  else return 0.05;
+}
+  
+
 bool TauFinder::findTau(std::vector<ReconstructedParticle*> &charged_vec, std::vector<ReconstructedParticle*> &neutral_vec,
 			std::vector<std::vector<ReconstructedParticle*>> &tau_vec)
 {
@@ -631,6 +641,10 @@ bool TauFinder::findTau(std::vector<ReconstructedParticle*> &charged_vec, std::v
   tau_mom[1] = tau_seed->getMomentum()[1];
   tau_mom[2] = tau_seed->getMomentum()[2];
 
+  // Dynamic cone
+  float tau_dynamic_pt = std::sqrt(tau_mom[0]*tau_mom[0] + tau_mom[1]*tau_mom[1]);
+  float coneAngle = computeDynamicCone(tau_dynamic_pt);
+  
   // Assign charged particles to tau candidate
   std::vector<ReconstructedParticle*>::iterator iterQ = charged_vec.begin();
   for (unsigned int q=0; q<charged_vec.size(); q++)
@@ -647,7 +661,7 @@ bool TauFinder::findTau(std::vector<ReconstructedParticle*> &charged_vec, std::v
 			 sqrt(tau_mom[0]*tau_mom[0]+tau_mom[1]*tau_mom[1]+tau_mom[2]*tau_mom[2])));
 
       // Add charged particle to tau candidate if inside search cone
-      if(angle < _coneAngle)
+      if(angle < coneAngle)
 	{
 	  tau.push_back(charged_vec[q]);
 	  tau_energy += charged_vec[q]->getEnergy();
@@ -656,6 +670,10 @@ bool TauFinder::findTau(std::vector<ReconstructedParticle*> &charged_vec, std::v
 	      tau_mom[i] += charged_mom[i];
 	    }
 
+	  // Update dynamic cone
+	  tau_dynamic_pt = std::sqrt(tau_mom[0]*tau_mom[0] + tau_mom[1]*tau_mom[1]);
+	  coneAngle = computeDynamicCone(tau_dynamic_pt);
+	  
 	  // Remove charged particle from charged particle vector
 	  charged_vec.erase(iterQ);
 	  q--;
@@ -680,7 +698,7 @@ bool TauFinder::findTau(std::vector<ReconstructedParticle*> &charged_vec, std::v
 			 sqrt(tau_mom[0]*tau_mom[0]+tau_mom[1]*tau_mom[1]+tau_mom[2]*tau_mom[2])));
 
       // Add neutral particle to tau candidate if inside search cone
-      if(angle < _coneAngle)
+      if(angle < coneAngle)
 	{
 	  tau.push_back(neutral_vec[n]);
 	  tau_energy += neutral_vec[n]->getEnergy();
@@ -688,6 +706,10 @@ bool TauFinder::findTau(std::vector<ReconstructedParticle*> &charged_vec, std::v
 	    {
 	      tau_mom[i] += neutral_mom[i];
 	    }
+
+	  // Update dynamic cone
+	  tau_dynamic_pt = std::sqrt(tau_mom[0]*tau_mom[0] + tau_mom[1]*tau_mom[1]);
+	  coneAngle = computeDynamicCone(tau_dynamic_pt);
 	  
 	  // Remove neutral particle from neutral particle vector
 	  neutral_vec.erase(iterN);

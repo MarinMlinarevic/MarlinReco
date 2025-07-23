@@ -55,7 +55,7 @@
         <!--verbosity level of this processor ("DEBUG0-4,MESSAGE0-4,WARNING0-4,ERROR0-4,SILENT")-->
         <parameter name="Verbosity" type="string">DEBUG4</parameter>
 	<!--Name of output file-->
-	<parameter name="fileName" type="string">taufinder_cone_15_pt_1000.root</parameter>
+	<parameter name="fileName" type="string">taufinder_cone_15_pt_100.root</parameter>
         <!--Outer isolation cone around search cone of tau jet in rad (relativ to cone angle)-->
         <parameter name="isolationConeAngle" type="float">0.2 </parameter>
         <!--Energy allowed within isolation cone region-->
@@ -75,7 +75,7 @@
         <!-- compression of output file 0: false >0: true (default) -->
         <parameter name="Compress" type="int" value="1"/>
         <!-- filename without extension-->
-        <parameter name="FileName" type="string" value="output_taufinder_cone_15_pt_1000"/>
+        <parameter name="FileName" type="string" value="output_taufinder_cone_15_pt_100"/>
         <!-- type of output file xml (default) or root ( only OpenScientist)-->
         <parameter name="FileType" type="string" value="root "/>
     </processor>
@@ -87,7 +87,7 @@
 
     <!-- LCIO output: keep all collections -->
     <processor name="LCIOWriter" type="LCIOOutputProcessor">
-        <parameter name="LCIOOutputFile" type="string"> output_taufinder_cone_15_pt_1000.slcio </parameter>
+        <parameter name="LCIOOutputFile" type="string"> output_taufinder_cone_15_pt_100.slcio </parameter>
         <parameter name="FullSubsetCollections" type="StringVec"></parameter>
         <parameter name="DropCollectionTypes" type="StringVec">
         CalorimeterHit

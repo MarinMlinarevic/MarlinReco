@@ -36,27 +36,29 @@
         <parameter name="SaveBremsstrahlungPhotons" type="bool">false </parameter>
         <!--Names of the SimCaloHits input collections-->
         <parameter name="SimCaloHitCollections" type="StringVec" lcioInType="SimCalorimeterHit">
-            ECalBarrelCollection
-            ECalEndcapCollection
-            ECalPlugCollection
-            HCalBarrelCollection
-            HCalEndcapCollection
-            HCalRingCollection
+            EcalBarrelCollectionSel
+            EcalEndcapCollectionSel
+            HcalBarrelCollectionConed
+            HcalEndcapCollectionConed
             YokeBarrelCollection
             YokeEndcapCollection
         </parameter>
         <!--Name of the  lcrelation collections, that link the SimCalorimeterHit to CalorimeterHit-->
         <parameter name="SimCalorimeterHitRelationNames" type="StringVec" lcioInType="LCRelation">
-            CaloHitsRelations MuonHitsRelations
+          EcalBarrelRelationsSimSel
+	  EcalEndcapRelationsSimSel
+	  HcalBarrelRelationsSimConed
+	  HcalEndcapRelationsSimConed
+	  MuonHitsRelations
         </parameter>
         <!--Names of the SimTrackerHits input collection-->
         <parameter name="SimTrackerHitCollections" type="StringVec" lcioInType="SimTrackerHit">
-            VertexBarrelCollection
-            VertexEndcapCollection
-            InnerTrackerBarrelCollection
-            OuterTrackerBarrelCollection
-            InnerTrackerEndcapCollection
-            OuterTrackerEndcapCollection
+            VBTrackerHitsConed
+            VETrackerHitsConed
+            IBTrackerHitsConed
+            OBTrackerHitsConed
+            IETrackerHitsConed
+            OETrackerHitsConed
         </parameter>
         <!--Name of the Tracks input collection-->
         <parameter name="TrackCollection" type="string" lcioInType="Track"> SiTracks_Refitted </parameter>
@@ -64,12 +66,12 @@
         <parameter name="TrackMCTruthLinkName" type="string" lcioOutType="LCRelation"> SiTracksMCTruthLink </parameter>
         <!--Name of the lcrelation collections, that link the TrackerHits to their SimTrackerHits.-->
         <parameter name="TrackerHitsRelInputCollections" type="StringVec" lcioInType="LCRelation">
-            VXDBarrelHitsRelations
-            VXDEndcapHitsRelations
-            ITBarrelHitsRelations
-            OTBarrelHitsRelations
-            ITEndcapHitsRelations
-            OTEndcapHitsRelations
+            VBTrackerHitsRelationsConed
+            VETrackerHitsRelationsConed
+            IBTrackerHitsRelationsConed
+            OBTrackerHitsRelationsConed
+            IETrackerHitsRelationsConed
+            OETrackerHitsRelationsConed
         </parameter>
         <!--true: use relations for TrackerHits, false : use getRawHits -->
         <parameter name="UseTrackerHitRelations" type="bool"> true </parameter>
