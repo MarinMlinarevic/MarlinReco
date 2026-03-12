@@ -111,7 +111,7 @@
 	RecoTausMerge
 	RecoTausNParticles
 	RecoTausIsoEnergy
-        SiTracks_Refitted
+        SiTracks_Refitted_JETS
         PandoraPFOs_JETS
         </parameter>
         <parameter name="LCIOWriteMode" type="string" value="WRITE_NEW"/>
