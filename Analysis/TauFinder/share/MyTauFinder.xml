@@ -37,7 +37,7 @@
     <processor name="MyTauFinder" type="TauFinder">
         <!--TauFinder writes tau candidates as ReconstructedParticles into collection. It runs on a collection of ReconstructedParticels, if you want  to run on MCParticles you have to convert them before hand (use e.g. PrepareRECParticles processor)-->
         <!--Collection of PFOs-->
-        <parameter name="PFOCollection" type="string" lcioInType="ReconstructedParticle">PandoraPFOs </parameter>
+        <parameter name="PFOCollection" type="string" lcioInType="ReconstructedParticle">PandoraPFOs_JETS </parameter>
         <!--Collection of Tau Candidates-->
         <parameter name="RecoTauCollection" type="string" lcioOutType="ReconstructedParticle">RecoTaus </parameter>
         <!--Name of the Tau link to ReconstructedParticle collection-->
@@ -112,7 +112,7 @@
 	RecoTausNParticles
 	RecoTausIsoEnergy
         SiTracks_Refitted
-        PandoraPFOs
+        PandoraPFOs_JETS
         </parameter>
         <parameter name="LCIOWriteMode" type="string" value="WRITE_NEW"/>
         <parameter name="Verbosity" type="string">MESSAGE </parameter>
