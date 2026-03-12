@@ -10,13 +10,19 @@ Obtain a local version of LCContent:
 
 Point LCContent to the running version of PandoraPFA:
 
-- In `CMakeLists.txt`, add `set(CMAKE_MODULE_PATH "/opt/spack/opt/spack/linux-almalinux9-x86_64/gcc-11.3.1/pandorapfa-4.8.1-lnq2xrwhmmjsd4hpwetkwsf55rjwbu53/cmakemodules")` above `include(PandoraCMakeSettings)` Note that you may have to find the path to pandorapfa/cmakemodules in your environment.
+- In `CMakeLists.txt`, add
+
+    ```cmake
+    set(CMAKE_MODULE_PATH "/opt/spack/opt/spack/linux-almalinux9-x86_64/gcc-11.5.0/pandorapfa-4.11.2-3eayvdubji4xb4rrylket45ckledk7k3/cmakemodules")
+    ```
+
+    above `include(PandoraCMakeSettings)`. This works in the container at `/cvmfs/unpacked.cern.ch/ghcr.io/muoncollidersoft/mucoll-sim-alma9:latest`; if you are using a different environment, the path may be different.
 
 Edit where `MacroCheckPackageLibs` and `MacroCheckPackageVersion` are found:
 
 - In `cmake/LCContentConfig.cmake.in` and `cmake/LCPandoraContentConfig.cmake.in`, change `INCLUDE( "@PANDORA_CMAKE_MODULES_PATH@/MacroCheckPackageLibs.cmake")` to `INCLUDE( "MacroCheckPackageLibs")`
 
-- In `cmake/LCContentConfigVersion.cmake.in` and `cmake/LCPandoraContentConfigVersion.cmake.in`, change `INCLUDE( "@PANDORA_CMAKE_MODULES_PATH@/MacroCheckPackageLibs.cmake")` to `INCLUDE( "MacroCheckPackageLibs")`
+- In `cmake/LCContentConfigVersion.cmake.in` and `cmake/LCPandoraContentConfigVersion.cmake.in`, change `INCLUDE( "@PANDORA_CMAKE_MODULES_PATH@/MacroCheckPackageVersion.cmake" )` to `INCLUDE( "MacroCheckPackageVersion" )`
 
 Compile the library:
 
@@ -36,22 +42,18 @@ Compile the library:
 
 - `mkdir build && cd build`
 
-- `cmake -B . -S ../ -DCMAKE_CXX_STANDARD=20 -    DCMAKE_INSTALL_PREFIX=$(pwd)/../install -DLCContent_DIR=/<your path   to>/LCContent/install/`
+- `cmake -B . -S ../ -DCMAKE_CXX_STANDARD=20 -DCMAKE_INSTALL_PREFIX=$(pwd)/../install -DLCContent_DIR=/<your path   to>/LCContent/install/`
 
 - `make -j 4 install`
 
-Swap your path to `libDDMarlinPandora.so` in `$MARLIN_DLL` (THESE STEP MUST BE REPEATED EACH TIME YOU RUN `TauFinder`):
+Replace the path to `libDDMarlinPandora.so` in `$MARLIN_DLL` with the path to the version just compiled (THIS MUST BE REPEATED EACH TIME YOU RUN THE CONTAINER):
 
-- `echo $MARLIN_DLL`
-
-- Find the listed path to `libDDMarlinPandora.so` (e.g. `/opt/spack/opt/spack/linux-almalinux9-x86_64/gcc-11.3.1/ddmarlinpandora-0.14-m2wmh6ygxhvoe5jwwioxejbk356mxlvs/lib/libDDMarlinPandora.so`)
-
-- In a text editor, find and replace the current path with `<your path to>/DDMarlinPandora/install/lib/libDDMarlinPandora.so`. Copy the entire new variable.
-
-- Override `$MARLIN_DLL` with the edited version with `export MARLIN_DLL=<paste the edited variable>`
+```bash
+export MARLIN_DLL=$(echo "$MARLIN_DLL" | sed 's#[^:]*libDDMarlinPandora\.so#/<your path to>/DDMarlinPandora/install/lib/libDDMarlinPandora.so#')
+```
 
 ## Compile MarlinReco and Run `TauFinder`
-Compile MarlineReco:
+Compile MarlinReco:
 
 - `cd MarlinReco`
 
@@ -61,15 +63,12 @@ Compile MarlineReco:
 
 - `make -j 4 install`
 
-Swap your path to `libMarlinReco.so` in `$MARLIN_DLL` (THESE STEP MUST BE REPEATED EACH TIME YOU RUN `TauFinder`):
+Replace the path to `libMarlinReco.so` in `$MARLIN_DLL` with the path to the version just compiled (THIS MUST BE REPEATED EACH TIME YOU RUN THE CONTAINER):
 
-- `echo $MARLIN_DLL`
+```bash
 
-- Find the listed path to `libMarlinReco.so` (e.g. `/opt/spack/opt/spack/linux-almalinux9-x86_64/gcc-11.3.1/MarlinReco-0.14-m2wmh6ygxhvoe5jwwioxejbk356mxlvs/lib/libMarlinReco.so`)
-
-- In a text editor, find and replace the current path with `<your path to>/MarlinReco/install/lib/libMarlinReco.so`. Copy the entire new variable.
-
-- Override `$MARLIN_DLL` with the edited version with `export MARLIN_DLL=<paste the edited variable>`
+-export MARLIN_DLL=$(echo "$MARLIN_DLL" | sed "s#[^:]*libMarlinReco\.so#/<your path to>/MarlinReco/install/lib/libMarlinReco.so#")
+```
 
 Run `TauFinder`:
 
