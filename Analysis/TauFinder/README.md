@@ -66,8 +66,7 @@ Compile MarlinReco:
 Replace the path to `libMarlinReco.so` in `$MARLIN_DLL` with the path to the version just compiled (THIS MUST BE REPEATED EACH TIME YOU RUN THE CONTAINER):
 
 ```bash
-
--export MARLIN_DLL=$(echo "$MARLIN_DLL" | sed "s#[^:]*libMarlinReco\.so#/<your path to>/MarlinReco/install/lib/libMarlinReco.so#")
+export MARLIN_DLL=$(echo "$MARLIN_DLL" | sed "s#[^:]*libMarlinReco\.so#/<your path to>/MarlinReco/install/lib/libMarlinReco.so#")
 ```
 
 Run `TauFinder`:
