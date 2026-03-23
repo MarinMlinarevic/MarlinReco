@@ -15,7 +15,7 @@ cd MarlinReco
 mkdir build && cd $_
 cmake .. # use the appropriate compiler flags
 [make format]  # apply Cpp format guidelines in place (optional)
-make install
+make -j 4 install
 ```
 
 ## License and Copyright
