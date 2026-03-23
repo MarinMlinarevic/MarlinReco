@@ -3,10 +3,10 @@
 LCContent and PandoraPFA must be compiled locally in order to run the `TauFinder` reconstruction algorithm.
 ### LCContent
 Obtain a local version of LCContent:
-
-- `git clone https://github.com/PandoraPFA/LCContent.git`
-
-- `cd LCContent`
+```bash
+git clone https://github.com/PandoraPFA/LCContent.git
+cd LCContent
+```
 
 Point LCContent to the running version of PandoraPFA:
 
@@ -25,26 +25,25 @@ Edit where `MacroCheckPackageLibs` and `MacroCheckPackageVersion` are found:
 - In `cmake/LCContentConfigVersion.cmake.in` and `cmake/LCPandoraContentConfigVersion.cmake.in`, change `INCLUDE( "@PANDORA_CMAKE_MODULES_PATH@/MacroCheckPackageVersion.cmake" )` to `INCLUDE( "MacroCheckPackageVersion" )`
 
 Compile the library:
+```bash
+mkdir build && cd build
+cmake -B . -S ../ -DCMAKE_CXX_STANDARD=20 -DCMAKE_INSTALL_PREFIX=$(pwd)/../install
+make -j 4 install
+```
 
-- `mkdir build && cd build`
-
-- `cmake -B . -S ../ -DCMAKE_CXX_STANDARD=20 -DCMAKE_INSTALL_PREFIX=$(pwd)/../install`
-
-- `make -j 4 install`
 ### DDMarlinPandora
 Obtain a local version of DDMarlinPandora:
-
-- `git clone https://github.com/MuonColliderSoft/DDMarlinPandora.git`
-
-- `cd DDMarlinPandora`
+```bash
+git clone https://github.com/MuonColliderSoft/DDMarlinPandora.git
+cd DDMarlinPandora
+```
 
 Compile the library:
-
-- `mkdir build && cd build`
-
-- `cmake -B . -S ../ -DCMAKE_CXX_STANDARD=20 -DCMAKE_INSTALL_PREFIX=$(pwd)/../install -DLCContent_DIR=/<your path   to>/LCContent/install/`
-
-- `make -j 4 install`
+```bash
+mkdir build && cd build
+cmake -B . -S ../ -DCMAKE_CXX_STANDARD=20 -DCMAKE_INSTALL_PREFIX=$(pwd)/../install -DLCContent_DIR=/<your path   to>/LCContent/install/`
+make -j 4 install
+```
 
 Replace the path to `libDDMarlinPandora.so` in `$MARLIN_DLL` with the path to the version just compiled (THIS MUST BE REPEATED EACH TIME YOU RUN THE CONTAINER):
 
@@ -54,14 +53,12 @@ export MARLIN_DLL=$(echo "$MARLIN_DLL" | sed 's#[^:]*libDDMarlinPandora\.so#/<yo
 
 ## Compile MarlinReco and Run `TauFinder`
 Compile MarlinReco:
-
-- `cd MarlinReco`
-
-- `mkdir build && cd build`
-
-- `cmake -B . -S ../ -DCMAKE_CXX_STANDARD=20 -DCMAKE_INSTALL_PREFIX=$(pwd)/../install -DLCContent_DIR=/<your path to>/LCContent/install/`
-
-- `make -j 4 install`
+```bash
+cd MarlinReco
+mkdir build && cd build
+cmake -B . -S ../ -DCMAKE_CXX_STANDARD=20 -DCMAKE_INSTALL_PREFIX=$(pwd)/../install -DLCContent_DIR=/<your path to>/LCContent/install/
+make -j 4 install
+```
 
 Replace the path to `libMarlinReco.so` in `$MARLIN_DLL` with the path to the version just compiled (THIS MUST BE REPEATED EACH TIME YOU RUN THE CONTAINER):
 
@@ -71,4 +68,6 @@ export MARLIN_DLL=$(echo "$MARLIN_DLL" | sed "s#[^:]*libMarlinReco\.so#/<your pa
 
 Run `TauFinder`:
 
-- `Marlin --global.LCIOInputFiles="reco_output.slcio" <your path to>/MarlinReco/Analysis/TauFinder/share/MyTauFinder.xml`
+```bash
+Marlin --global.LCIOInputFiles="reco_output.slcio" <your path to>/MarlinReco/Analysis/TauFinder/share/MyTauFinder.xml
+```
