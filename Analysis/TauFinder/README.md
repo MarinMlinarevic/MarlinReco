@@ -2,27 +2,19 @@
 ## Compiling Local Versions of PandoraPFA and LCContent
 LCContent and PandoraPFA must be compiled locally in order to run the `TauFinder` reconstruction algorithm.
 ### LCContent
-Obtain a local version of LCContent:
+Obtain a local version of the `maia-TauFinder` branch of LCContent:
 ```bash
-git clone https://github.com/PandoraPFA/LCContent.git
+git clone -b maia-TauFinder https://github.com/MarinMlinarevic/LCContent.git
 cd LCContent
 ```
 
-Point LCContent to the running version of PandoraPFA:
+The path to PandoraPFA is specified in `CMakeLists.txt` using the following line:
+```cmake
+set(CMAKE_MODULE_PATH "/opt/spack/opt/spack/linux-almalinux9-x86_64/gcc-11.5.0/pandorapfa-4.11.2-3eayvdubji4xb4rrylket45ckledk7k3/cmakemodules")
+```
+This works in the container at `/cvmfs/unpacked.cern.ch/ghcr.io/muoncollidersoft/mucoll-sim-alma9:latest`; if you are using a different environment, the path may be different.
 
-- In `CMakeLists.txt`, add
 
-    ```cmake
-    set(CMAKE_MODULE_PATH "/opt/spack/opt/spack/linux-almalinux9-x86_64/gcc-11.5.0/pandorapfa-4.11.2-3eayvdubji4xb4rrylket45ckledk7k3/cmakemodules")
-    ```
-
-    above `include(PandoraCMakeSettings)`. This works in the container at `/cvmfs/unpacked.cern.ch/ghcr.io/muoncollidersoft/mucoll-sim-alma9:latest`; if you are using a different environment, the path may be different.
-
-Edit where `MacroCheckPackageLibs` and `MacroCheckPackageVersion` are found:
-
-- In `cmake/LCContentConfig.cmake.in` and `cmake/LCPandoraContentConfig.cmake.in`, change `INCLUDE( "@PANDORA_CMAKE_MODULES_PATH@/MacroCheckPackageLibs.cmake")` to `INCLUDE( "MacroCheckPackageLibs")`
-
-- In `cmake/LCContentConfigVersion.cmake.in` and `cmake/LCPandoraContentConfigVersion.cmake.in`, change `INCLUDE( "@PANDORA_CMAKE_MODULES_PATH@/MacroCheckPackageVersion.cmake" )` to `INCLUDE( "MacroCheckPackageVersion" )`
 
 Compile the library:
 ```bash
