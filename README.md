@@ -17,6 +17,18 @@ cmake .. # use the appropriate compiler flags
 [make format]  # apply Cpp format guidelines in place (optional)
 make -j 4 install
 ```
+This builds MarlinReco in the `build` directory and installs it in the `lib` directory in this repository. 
+You can specify different build, source and install paths using arguments of the `cmake` command, e.g.
+
+```bash
+cmake -B . -S ../ -DCMAKE_CXX_STANDARD=20 -DCMAKE_INSTALL_PREFIX=$(pwd)/../install -DLCContent_DIR=/<your path to>/LCContent/install/
+```
+
+Replace the path to `libMarlinReco.so` in `$MARLIN_DLL` with the path to the version just compiled (THIS MUST BE REPEATED EACH TIME YOU RUN THE CONTAINER):
+
+```bash
+export MARLIN_DLL=$(echo "$MARLIN_DLL" | sed "s#[^:]*libMarlinReco\.so#/<your path to>/MarlinReco/install/lib/libMarlinReco.so#")
+```
 
 ## License and Copyright
 Copyright (C), MarlinReco Authors
